@@ -1,93 +1,49 @@
-# CampusDesk — College Complaint Management System
+# CampusDesk - College Complaint Management System
 
-A Next.js (App Router) rebuild of the original static site, backed by **Supabase**
-(auth + database + storage) and an **AI Help Desk** powered by **Groq**.
+CampusDesk is a Next.js App Router application for filing, tracking, and resolving college complaints.
 
-Staff accounts have been removed — every complaint now goes straight to the
-admin, who can move it through **Pending → In Progress → Resolved** directly.
+- **Authentication:** Firebase Authentication (email/password)
+- **Database and image storage:** Supabase Postgres + Storage
+- **AI help desk:** Groq
 
-## 1. Set up Supabase
+Firebase is the only user/session authority. The Supabase client attaches the current Firebase ID token to data and storage requests, so Supabase Row Level Security still protects each user's records. There are no Supabase Auth SDK calls in the application.
 
-1. Create a free project at [supabase.com](https://supabase.com).
-2. Go to **SQL Editor** and run, in order:
-   - `sql/01_schema.sql` — tables, RLS policies, triggers, storage bucket.
-   - `sql/02_seed_data.sql` — the 5 default departments (read the comments
-     at the bottom for how to migrate your old demo data and create your
-     first admin account).
-3. Go to **Project Settings → API** and copy your **Project URL** and
-   **anon public key** — you'll need them in step 3 below.
+## Setup
 
-## 2. Get a Groq API key (for the AI Help Desk)
+Follow [FIREBASE_SUPABASE_SETUP.md](./FIREBASE_SUPABASE_SETUP.md) for the complete Firebase, Supabase, local environment, existing-database migration, admin, and Vercel deployment steps.
 
-Sign up free at [console.groq.com](https://console.groq.com/keys) and create
-an API key.
-
-## 3. Configure environment variables
-
-```bash
-cp .env.example .env.local
-```
-
-Fill in `.env.local` with your Supabase URL/key and Groq key.
-
-## 4. Install and run locally
+After the online services and `.env.local` are configured:
 
 ```bash
 npm install
 npm run dev
 ```
 
-Visit `http://localhost:3000`.
+Open `http://localhost:3000`.
 
-## 5. Create your first admin
+## Database scripts
 
-1. Register a normal account at `/register`.
-2. In Supabase's SQL Editor:
-   ```sql
-   update profiles set role = 'admin' where email = 'you@college.edu';
-   ```
-3. Log in at `/admin/login` with that same email + password.
+- `sql/01_schema.sql`: fresh Supabase database schema, RLS, triggers, and storage bucket
+- `sql/02_seed_data.sql`: default departments and admin notes
+- `sql/03_migrate_supabase_auth_to_firebase.sql`: converts an existing CampusDesk schema from Supabase Auth UUIDs to Firebase UIDs
 
-## 6. Deploy to Vercel
+Do not run the migration on a brand-new database created with the current `01_schema.sql`.
 
-1. Push this project to a GitHub repo.
-2. Go to [vercel.com/new](https://vercel.com/new) and import the repo.
-3. Add the same three environment variables from `.env.local` in the
-   Vercel project's **Settings → Environment Variables**.
-4. Deploy. Vercel auto-detects Next.js — no extra config needed.
+## Main project areas
 
-## Project structure
-
-```
-app/
-  page.js                 Home page (marketing)
-  login/                  Student login
-  register/                Student registration
-  dashboard/              Student dashboard
-  complaints/             My complaints, complaint details
-  complaints/new/         File a new complaint
-  track/                  Track a complaint by ID
-  notifications/          Notifications
-  profile/                Profile + change password
-  chatbot/                AI Help Desk (Groq-powered)
-  admin/login/            Admin login
-  admin/dashboard/        Admin dashboard
-  admin/complaints/       Manage all complaints (resolve directly)
-  admin/departments/      Manage departments
-  api/chat/route.js       Server route that calls the Groq API
-  globals.css             Design system (Inter font, ticket-stub theme)
-components/               Shared UI (Navbar, Sidebar, Topbar, AppShell...)
-lib/                      Supabase client, auth context, data helpers
-sql/                      Schema + seed SQL for Supabase
+```text
+app/                    Pages and API routes
+  api/auth/             Secure Firebase-to-Supabase claim setup
+  admin/                Admin login and management pages
+components/             Shared UI and protected app shell
+lib/firebaseClient.js   Browser Firebase initialization
+lib/firebaseAdmin.js    Server-only Firebase Admin initialization
+lib/firebaseAuth.js     Firebase authentication operations
+lib/supabaseClient.js   Supabase data client using Firebase ID tokens
+lib/AuthProvider.js     Firebase session/profile context
+sql/                    Supabase schema and migrations
 ```
 
-## Notes
+## Security model
 
-- **Auth & security**: route access is guarded on the client for UX, but the
-  real security boundary is Postgres **Row Level Security** — students can
-  only ever see their own complaints; only admins can update/delete any
-  complaint. Review `sql/01_schema.sql` before going to production.
-- **Images**: complaint photos upload to a public Supabase Storage bucket
-  (`complaint-images`), created automatically by the schema script.
-- **Fonts**: the whole site uses **Inter**, loaded via `next/font/google`,
-  with **IBM Plex Mono** reserved for complaint ticket IDs.
+Client-side route redirects improve UX, but Supabase RLS is the data security boundary. Firebase UIDs are read from the verified JWT `sub` claim. Student policies allow access only to their own profile, complaints, notifications, and upload folder; admin access comes from the `profiles.role` value in Supabase.

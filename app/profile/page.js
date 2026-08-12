@@ -5,7 +5,7 @@ import { useAuth } from "@/lib/AuthProvider";
 import { useToast } from "@/lib/ToastProvider";
 import AppShell from "@/components/AppShell";
 import Field from "@/components/Field";
-import { supabase } from "@/lib/supabaseClient";
+import { changeFirebasePassword, firebaseErrorMessage } from "@/lib/firebaseAuth";
 import { updateProfile } from "@/lib/data";
 import { isRequired, isPhone, passwordStrength } from "@/lib/validate";
 
@@ -52,19 +52,20 @@ export default function ProfilePage() {
     e.preventDefault();
     const errs = {};
     const strength = passwordStrength(passForm.next);
+    if (!isRequired(passForm.current)) errs.current = "Enter your current password.";
     if (strength < 3 || passForm.next.length < 8) errs.next = "Must be at least 8 characters with a number and symbol.";
     if (passForm.next !== passForm.confirm) errs.confirm = "Passwords do not match.";
     setPassErrors(errs);
     if (Object.keys(errs).length) return;
 
-    const { error } = await supabase.auth.updateUser({ password: passForm.next });
-    if (error) {
-      toast(error.message, "error");
-      return;
+    try {
+      await changeFirebasePassword(passForm.current, passForm.next);
+      setPassOpen(false);
+      setPassForm({ current: "", next: "", confirm: "" });
+      toast("Password updated successfully.", "success");
+    } catch (error) {
+      toast(firebaseErrorMessage(error), "error");
     }
-    setPassOpen(false);
-    setPassForm({ current: "", next: "", confirm: "" });
-    toast("Password updated successfully.", "success");
   }
 
   if (!profile) {
@@ -137,8 +138,11 @@ export default function ProfilePage() {
               <button className="modal-close" onClick={() => setPassOpen(false)}>&times;</button>
             </div>
             <form onSubmit={handlePasswordSubmit}>
+              <Field id="current-password" label="Current password" error={passErrors.current}>
+                <input type="password" id="current-password" autoComplete="current-password" value={passForm.current} onChange={(e) => setPassForm((f) => ({ ...f, current: e.target.value }))} />
+              </Field>
               <Field id="new-password" label="New password" error={passErrors.next}>
-                <input type="password" id="new-password" value={passForm.next} onChange={(e) => setPassForm((f) => ({ ...f, next: e.target.value }))} />
+                <input type="password" id="new-password" autoComplete="new-password" value={passForm.next} onChange={(e) => setPassForm((f) => ({ ...f, next: e.target.value }))} />
               </Field>
               <Field id="confirm-new-password" label="Confirm new password" error={passErrors.confirm}>
                 <input type="password" id="confirm-new-password" value={passForm.confirm} onChange={(e) => setPassForm((f) => ({ ...f, confirm: e.target.value }))} />

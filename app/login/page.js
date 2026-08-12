@@ -3,8 +3,8 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabaseClient";
 import { useAuth } from "@/lib/AuthProvider";
+import { firebaseErrorMessage, signInWithFirebase } from "@/lib/firebaseAuth";
 import { useToast } from "@/lib/ToastProvider";
 import { isRequired, isEmail } from "@/lib/validate";
 import Field from "@/components/Field";
@@ -17,6 +17,7 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPass, setShowPass] = useState(false);
+  const [remember, setRemember] = useState(true);
   const [errors, setErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
@@ -37,17 +38,17 @@ export default function LoginPage() {
     if (Object.keys(nextErrors).length) return;
 
     setSubmitting(true);
-    const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
-    setSubmitting(false);
-
-    if (error) {
-      setFormError("Incorrect email or password.");
-      toast("Incorrect email or password.", "error");
-      return;
+    try {
+      await signInWithFirebase(email, password, remember);
+      toast("Welcome back!", "success");
+      router.push("/dashboard");
+    } catch (error) {
+      const message = firebaseErrorMessage(error);
+      setFormError(message);
+      toast(message, "error");
+    } finally {
+      setSubmitting(false);
     }
-
-    toast("Welcome back!", "success");
-    router.push("/dashboard");
   }
 
   return (
@@ -91,7 +92,7 @@ export default function LoginPage() {
             </Field>
 
             <div className="check-row">
-              <label><input type="checkbox" /> Remember me</label>
+              <label><input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} /> Remember me</label>
               <Link href="/register">New here?</Link>
             </div>
 

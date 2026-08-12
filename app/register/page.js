@@ -4,6 +4,8 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import { useAuth } from "@/lib/AuthProvider";
+import { firebaseErrorMessage, registerWithFirebase, removeNewFirebaseUser } from "@/lib/firebaseAuth";
 import { useToast } from "@/lib/ToastProvider";
 import { isRequired, isEmail, isPhone, passwordStrength, strengthLabel, strengthColor } from "@/lib/validate";
 import Field from "@/components/Field";
@@ -14,6 +16,7 @@ const SEMESTERS = ["1st", "2nd", "3rd", "4th", "5th", "6th", "7th", "8th"];
 export default function RegisterPage() {
   const router = useRouter();
   const toast = useToast();
+  const { refreshProfile } = useAuth();
 
   const [form, setForm] = useState({
     name: "", roll: "", department: "", course: "", semester: "",
@@ -52,23 +55,12 @@ export default function RegisterPage() {
     if (Object.keys(nextErrors).length) return;
 
     setSubmitting(true);
+    let firebaseUser = null;
 
-    const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
-      email: form.email.trim(),
-      password: form.password,
-    });
-
-    if (signUpError) {
-      setSubmitting(false);
-      setFormError(signUpError.message.includes("already registered") ? "An account with this email already exists." : signUpError.message);
-      toast("Registration failed.", "error");
-      return;
-    }
-
-    const userId = signUpData.user?.id;
-    if (userId) {
+    try {
+      firebaseUser = await registerWithFirebase(form.email, form.password);
       const { error: profileError } = await supabase.from("profiles").insert({
-        id: userId,
+        id: firebaseUser.uid,
         role: "student",
         name: form.name.trim(),
         roll: form.roll.trim().toUpperCase(),
@@ -78,22 +70,20 @@ export default function RegisterPage() {
         course: form.course.trim(),
         semester: form.semester,
       });
-      if (profileError) {
-        setSubmitting(false);
-        setFormError(profileError.message.includes("duplicate") ? "This roll number is already registered." : profileError.message);
-        toast("Registration failed.", "error");
-        return;
-      }
-    }
+      if (profileError) throw profileError;
 
-    setSubmitting(false);
-
-    if (signUpData.session) {
-      toast("Account created! Redirecting…", "success");
+      await refreshProfile(firebaseUser.uid);
+      toast("Account created! Redirecting...", "success");
       router.push("/dashboard");
-    } else {
-      toast("Account created! Check your email to confirm, then log in.", "success");
-      router.push("/login");
+    } catch (error) {
+      if (firebaseUser) await removeNewFirebaseUser(firebaseUser).catch(() => {});
+      const message = error?.message?.includes("duplicate")
+        ? "This roll number is already registered."
+        : firebaseErrorMessage(error);
+      setFormError(message);
+      toast(message, "error");
+    } finally {
+      setSubmitting(false);
     }
   }
 

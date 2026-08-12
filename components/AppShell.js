@@ -13,7 +13,7 @@ import Topbar from "./Topbar";
  * requiredRole: "student" | "admin" | undefined (any signed-in user)
  */
 export default function AppShell({ title, requiredRole, notifCount = 0, showNotif = true, children }) {
-  const { user, profile, loading } = useAuth();
+  const { user, profile, loading, authError, signOut } = useAuth();
   const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -30,6 +30,15 @@ export default function AppShell({ title, requiredRole, notifCount = 0, showNoti
 
   if (loading || !user || (requiredRole && profile && profile.role !== requiredRole)) {
     return <div className="page-loading">Loading your workspace…</div>;
+  }
+
+  if (authError || !profile) {
+    return (
+      <div className="page-loading" style={{ flexDirection: "column", gap: 12, textAlign: "center", padding: 24 }}>
+        <p>{authError || "No CampusDesk profile is linked to this Firebase account."}</p>
+        <button className="btn btn-outline" onClick={signOut}>Sign out</button>
+      </div>
+    );
   }
 
   return (

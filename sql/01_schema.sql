@@ -4,9 +4,9 @@
 -- =========================================================
 
 -- ---------- profiles ----------
--- One row per app user (student or admin), linked 1:1 to Supabase auth.users
+-- One row per Firebase Authentication user. Firebase UIDs are text strings.
 create table if not exists profiles (
-  id uuid primary key references auth.users(id) on delete cascade,
+  id text primary key,
   role text not null default 'student' check (role in ('student','admin')),
   name text not null,
   roll text unique,                 -- roll number, only used by students
@@ -37,7 +37,7 @@ create table if not exists complaints (
   image_url text,
   status text not null default 'Pending' check (status in ('Pending','In Progress','Resolved')),
   remarks text default '',
-  student_id uuid not null references profiles(id) on delete cascade,
+  student_id text not null references profiles(id) on update cascade on delete cascade,
   student_name text not null,
   student_roll text,
   created_at timestamptz not null default now(),
@@ -51,7 +51,7 @@ create index if not exists complaints_department_idx on complaints(department);
 -- ---------- notifications ----------
 create table if not exists notifications (
   id bigserial primary key,
-  user_id uuid not null references profiles(id) on delete cascade,
+  user_id text not null references profiles(id) on update cascade on delete cascade,
   text text not null,
   type text not null default 'info',   -- 'info' | 'assigned' | 'resolved'
   read boolean not null default false,
@@ -108,6 +108,16 @@ alter table departments enable row level security;
 alter table complaints enable row level security;
 alter table notifications enable row level security;
 
+-- Firebase puts its UID in the JWT subject (`sub`). Do not use auth.uid()
+-- because Supabase's helper casts the subject to UUID.
+create or replace function public.request_user_id()
+returns text
+language sql
+stable
+as $$
+  select nullif(auth.jwt()->>'sub', '');
+$$;
+
 -- Helper: is the current user an admin? (security definer avoids recursive RLS)
 create or replace function public.is_admin()
 returns boolean
@@ -117,74 +127,78 @@ set search_path = public
 stable
 as $$
   select exists (
-    select 1 from profiles where id = auth.uid() and role = 'admin'
+    select 1 from profiles where id = public.request_user_id() and role = 'admin'
   );
 $$;
 
 -- ---------- profiles policies ----------
 drop policy if exists "profiles: view own or admin" on profiles;
 create policy "profiles: view own or admin"
-  on profiles for select
-  using (auth.uid() = id or public.is_admin());
+  on profiles for select to authenticated
+  using (public.request_user_id() = id or public.is_admin());
 
 drop policy if exists "profiles: insert own" on profiles;
 create policy "profiles: insert own"
-  on profiles for insert
-  with check (auth.uid() = id);
+  on profiles for insert to authenticated
+  with check (public.request_user_id() = id and role = 'student');
 
 drop policy if exists "profiles: update own" on profiles;
 create policy "profiles: update own"
-  on profiles for update
-  using (auth.uid() = id);
+  on profiles for update to authenticated
+  using (public.request_user_id() = id)
+  with check (
+    public.request_user_id() = id
+    and (role = 'student' or public.is_admin())
+  );
 
 -- ---------- departments policies ----------
 drop policy if exists "departments: read by any signed-in user" on departments;
 create policy "departments: read by any signed-in user"
-  on departments for select
-  using (auth.role() = 'authenticated');
+  on departments for select to authenticated
+  using (true);
 
 drop policy if exists "departments: admin manages" on departments;
 create policy "departments: admin manages"
-  on departments for all
+  on departments for all to authenticated
   using (public.is_admin())
   with check (public.is_admin());
 
 -- ---------- complaints policies ----------
 drop policy if exists "complaints: student views own or admin views all" on complaints;
 create policy "complaints: student views own or admin views all"
-  on complaints for select
-  using (student_id = auth.uid() or public.is_admin());
+  on complaints for select to authenticated
+  using (student_id = public.request_user_id() or public.is_admin());
 
 drop policy if exists "complaints: student inserts own" on complaints;
 create policy "complaints: student inserts own"
-  on complaints for insert
-  with check (student_id = auth.uid());
+  on complaints for insert to authenticated
+  with check (student_id = public.request_user_id());
 
 drop policy if exists "complaints: admin updates any" on complaints;
 create policy "complaints: admin updates any"
-  on complaints for update
+  on complaints for update to authenticated
   using (public.is_admin());
 
 drop policy if exists "complaints: admin deletes any" on complaints;
 create policy "complaints: admin deletes any"
-  on complaints for delete
+  on complaints for delete to authenticated
   using (public.is_admin());
 
 -- ---------- notifications policies ----------
 drop policy if exists "notifications: user views own" on notifications;
 create policy "notifications: user views own"
-  on notifications for select
-  using (user_id = auth.uid());
+  on notifications for select to authenticated
+  using (user_id = public.request_user_id());
 
 drop policy if exists "notifications: user updates own (mark read)" on notifications;
 create policy "notifications: user updates own (mark read)"
-  on notifications for update
-  using (user_id = auth.uid());
+  on notifications for update to authenticated
+  using (user_id = public.request_user_id());
 
 drop policy if exists "notifications: any signed-in user can insert" on notifications;
 create policy "notifications: any signed-in user can insert"
-  on notifications for insert
-  with check (auth.role() = 'authenticated');
+  on notifications for insert to authenticated
+  with check (user_id = public.request_user_id() or public.is_admin());
 
 -- =========================================================
 -- Storage bucket for complaint attachment images
@@ -200,5 +214,8 @@ create policy "complaint images: public read"
 
 drop policy if exists "complaint images: authenticated upload" on storage.objects;
 create policy "complaint images: authenticated upload"
-  on storage.objects for insert
-  with check (bucket_id = 'complaint-images' and auth.role() = 'authenticated');
+  on storage.objects for insert to authenticated
+  with check (
+    bucket_id = 'complaint-images'
+    and (storage.foldername(name))[1] = public.request_user_id()
+  );

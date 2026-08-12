@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { useAuth } from "@/lib/AuthProvider";
+import { firebaseErrorMessage, signInWithFirebase, signOutFromFirebase } from "@/lib/firebaseAuth";
 import { useToast } from "@/lib/ToastProvider";
 import { isRequired, isEmail } from "@/lib/validate";
 import Field from "@/components/Field";
@@ -37,27 +38,32 @@ export default function AdminLoginPage() {
     if (Object.keys(nextErrors).length) return;
 
     setSubmitting(true);
-    const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+    try {
+      const firebaseUser = await signInWithFirebase(email, password);
+      const { data: prof, error: profileError } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("id", firebaseUser.uid)
+        .maybeSingle();
+      if (profileError) throw profileError;
 
-    if (error) {
+      if (prof?.role !== "admin") {
+        await signOutFromFirebase();
+        const message = "This account isn't registered as an administrator.";
+        setFormError(message);
+        toast(message, "error");
+        return;
+      }
+
+      toast("Welcome back, Admin!", "success");
+      router.push("/admin/dashboard");
+    } catch (error) {
+      const message = firebaseErrorMessage(error);
+      setFormError(message);
+      toast(message, "error");
+    } finally {
       setSubmitting(false);
-      setFormError("Incorrect email or password.");
-      toast("Incorrect email or password.", "error");
-      return;
     }
-
-    const { data: prof } = await supabase.from("profiles").select("role").eq("id", data.user.id).single();
-    setSubmitting(false);
-
-    if (prof?.role !== "admin") {
-      await supabase.auth.signOut();
-      setFormError("This account isn't registered as an administrator.");
-      toast("This account isn't registered as an administrator.", "error");
-      return;
-    }
-
-    toast("Welcome back, Admin!", "success");
-    router.push("/admin/dashboard");
   }
 
   return (
@@ -91,7 +97,7 @@ export default function AdminLoginPage() {
 
         <p className="form-foot">Student? <Link href="/login">Go to student login</Link></p>
         <p className="form-foot" style={{ fontSize: ".78rem" }}>
-          Promote an account to admin from the Supabase SQL editor — see <code>sql/02_seed_data.sql</code>.
+          Register the Firebase account first, then promote its Supabase profile — see <code>FIREBASE_SUPABASE_SETUP.md</code>.
         </p>
       </div>
     </div>
