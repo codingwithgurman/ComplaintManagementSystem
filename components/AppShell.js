@@ -35,7 +35,7 @@ export default function AppShell({ title, requiredRole, notifCount = 0, showNoti
   if (authError || !profile) {
     return (
       <div className="page-loading" style={{ flexDirection: "column", gap: 12, textAlign: "center", padding: 24 }}>
-        <p>{authError || "No CampusDesk profile is linked to this Firebase account."}</p>
+        <p>{authError || "No CampusDesk profile is linked to this Supabase account."}</p>
         <button className="btn btn-outline" onClick={signOut}>Sign out</button>
       </div>
     );

@@ -5,7 +5,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { useAuth } from "@/lib/AuthProvider";
-import { firebaseErrorMessage, signInWithFirebase, signOutFromFirebase } from "@/lib/firebaseAuth";
 import { useToast } from "@/lib/ToastProvider";
 import { isRequired, isEmail } from "@/lib/validate";
 import Field from "@/components/Field";
@@ -39,16 +38,26 @@ export default function AdminLoginPage() {
 
     setSubmitting(true);
     try {
-      const firebaseUser = await signInWithFirebase(email, password);
+      const { data, error: signInError } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
+      if (signInError) {
+        const message = "Incorrect email or password.";
+        setFormError(message);
+        toast(message, "error");
+        return;
+      }
+
       const { data: prof, error: profileError } = await supabase
         .from("profiles")
         .select("role")
-        .eq("id", firebaseUser.uid)
+        .eq("id", data.user.id)
         .maybeSingle();
       if (profileError) throw profileError;
 
       if (prof?.role !== "admin") {
-        await signOutFromFirebase();
+        await supabase.auth.signOut();
         const message = "This account isn't registered as an administrator.";
         setFormError(message);
         toast(message, "error");
@@ -58,7 +67,7 @@ export default function AdminLoginPage() {
       toast("Welcome back, Admin!", "success");
       router.push("/admin/dashboard");
     } catch (error) {
-      const message = firebaseErrorMessage(error);
+      const message = error?.message || "Could not verify administrator permissions.";
       setFormError(message);
       toast(message, "error");
     } finally {
@@ -97,7 +106,7 @@ export default function AdminLoginPage() {
 
         <p className="form-foot">Student? <Link href="/login">Go to student login</Link></p>
         <p className="form-foot" style={{ fontSize: ".78rem" }}>
-          Register the Firebase account first, then promote its Supabase profile — see <code>FIREBASE_SUPABASE_SETUP.md</code>.
+          Register the account first, then promote its profile — see <code>SUPABASE_SETUP.md</code>.
         </p>
       </div>
     </div>

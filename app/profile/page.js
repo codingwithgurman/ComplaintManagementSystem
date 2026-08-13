@@ -5,7 +5,7 @@ import { useAuth } from "@/lib/AuthProvider";
 import { useToast } from "@/lib/ToastProvider";
 import AppShell from "@/components/AppShell";
 import Field from "@/components/Field";
-import { changeFirebasePassword, firebaseErrorMessage } from "@/lib/firebaseAuth";
+import { supabase } from "@/lib/supabaseClient";
 import { updateProfile } from "@/lib/data";
 import { isRequired, isPhone, passwordStrength } from "@/lib/validate";
 
@@ -59,12 +59,17 @@ export default function ProfilePage() {
     if (Object.keys(errs).length) return;
 
     try {
-      await changeFirebasePassword(passForm.current, passForm.next);
+      const { error } = await supabase.auth.updateUser({
+        password: passForm.next,
+        current_password: passForm.current,
+      });
+      if (error) throw error;
+
       setPassOpen(false);
       setPassForm({ current: "", next: "", confirm: "" });
       toast("Password updated successfully.", "success");
     } catch (error) {
-      toast(firebaseErrorMessage(error), "error");
+      toast(error.message || "Could not update your password.", "error");
     }
   }
 

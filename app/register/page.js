@@ -5,7 +5,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { useAuth } from "@/lib/AuthProvider";
-import { firebaseErrorMessage, registerWithFirebase, removeNewFirebaseUser } from "@/lib/firebaseAuth";
 import { useToast } from "@/lib/ToastProvider";
 import { isRequired, isEmail, isPhone, passwordStrength, strengthLabel, strengthColor } from "@/lib/validate";
 import Field from "@/components/Field";
@@ -55,31 +54,40 @@ export default function RegisterPage() {
     if (Object.keys(nextErrors).length) return;
 
     setSubmitting(true);
-    let firebaseUser = null;
 
     try {
-      firebaseUser = await registerWithFirebase(form.email, form.password);
-      const { error: profileError } = await supabase.from("profiles").insert({
-        id: firebaseUser.uid,
-        role: "student",
-        name: form.name.trim(),
-        roll: form.roll.trim().toUpperCase(),
+      const { data, error } = await supabase.auth.signUp({
         email: form.email.trim(),
-        phone: form.phone.trim(),
-        department: form.department,
-        course: form.course.trim(),
-        semester: form.semester,
+        password: form.password,
+        options: {
+          emailRedirectTo: `${window.location.origin}/login`,
+          data: {
+            name: form.name.trim(),
+            roll: form.roll.trim().toUpperCase(),
+            phone: form.phone.trim(),
+            department: form.department,
+            course: form.course.trim(),
+            semester: form.semester,
+          },
+        },
       });
-      if (profileError) throw profileError;
+      if (error) throw error;
 
-      await refreshProfile(firebaseUser.uid);
-      toast("Account created! Redirecting...", "success");
-      router.push("/dashboard");
+      if (data.session && data.user) {
+        await refreshProfile(data.user.id);
+        toast("Account created! Redirecting...", "success");
+        router.push("/dashboard");
+      } else {
+        toast("Account created! Check your email to confirm, then log in.", "success");
+        router.push("/login");
+      }
     } catch (error) {
-      if (firebaseUser) await removeNewFirebaseUser(firebaseUser).catch(() => {});
-      const message = error?.message?.includes("duplicate")
-        ? "This roll number is already registered."
-        : firebaseErrorMessage(error);
+      const lowerMessage = error?.message?.toLowerCase() || "";
+      const message = lowerMessage.includes("already registered") || lowerMessage.includes("already been registered")
+        ? "An account with this email already exists."
+        : lowerMessage.includes("duplicate") || lowerMessage.includes("database error")
+          ? "This email or roll number is already registered."
+          : error?.message || "Registration failed. Please try again.";
       setFormError(message);
       toast(message, "error");
     } finally {
