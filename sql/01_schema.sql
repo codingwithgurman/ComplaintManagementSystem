@@ -1,54 +1,30 @@
 -- =========================================================
--- CampusDesk - Supabase Auth, database, and storage schema
+-- CampusDesk - Supabase Database Schema (Local Authentication)
 -- Run once in Supabase Dashboard > SQL Editor > New query.
 -- =========================================================
 
+-- Enable pgcrypto extension for UUID generation
+create extension if not exists "pgcrypto";
+
 -- ---------- profiles ----------
--- One row per Supabase Auth user.
+-- Stores student and administrator accounts managed by local authentication.
 create table if not exists public.profiles (
-  id uuid primary key references auth.users(id) on update cascade on delete cascade,
+  id uuid primary key default gen_random_uuid(),
   role text not null default 'student' check (role in ('student','admin')),
   name text not null,
   roll text unique,
-  email text not null,
+  email text not null unique,
+  password_hash text not null,
   phone text,
   department text,
   course text,
   semester text,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
 );
 
--- Create the app profile in the same transaction as Auth registration. This
--- also works when email confirmation is enabled and signUp returns no session.
-create or replace function public.handle_new_user()
-returns trigger
-language plpgsql
-security definer
-set search_path = ''
-as $$
-begin
-  insert into public.profiles (
-    id, role, name, roll, email, phone, department, course, semester
-  )
-  values (
-    new.id,
-    'student',
-    coalesce(nullif(new.raw_user_meta_data->>'name', ''), split_part(new.email, '@', 1)),
-    nullif(upper(new.raw_user_meta_data->>'roll'), ''),
-    new.email,
-    nullif(new.raw_user_meta_data->>'phone', ''),
-    nullif(new.raw_user_meta_data->>'department', ''),
-    nullif(new.raw_user_meta_data->>'course', ''),
-    nullif(new.raw_user_meta_data->>'semester', '')
-  );
-  return new;
-end;
-$$;
-
-drop trigger if exists on_auth_user_created on auth.users;
-create trigger on_auth_user_created
-after insert on auth.users
-for each row execute function public.handle_new_user();
+create index if not exists profiles_email_idx on public.profiles(lower(email));
+create index if not exists profiles_roll_idx on public.profiles(roll);
 
 -- ---------- departments ----------
 create table if not exists public.departments (
@@ -92,7 +68,7 @@ create table if not exists public.notifications (
 
 create index if not exists notifications_user_id_idx on public.notifications(user_id);
 
--- ---------- complaint automation ----------
+-- ---------- triggers & automation ----------
 create or replace function public.set_updated_at()
 returns trigger
 language plpgsql
@@ -134,7 +110,9 @@ after update on public.complaints
 for each row execute function public.notify_on_status_change();
 
 -- =========================================================
--- Row Level Security
+-- Permissions & Policies
+-- Authentication and session checks are handled by the application.
+-- Enable policies for anonymous/public access via Supabase client.
 -- =========================================================
 
 alter table public.profiles enable row level security;
@@ -142,90 +120,33 @@ alter table public.departments enable row level security;
 alter table public.complaints enable row level security;
 alter table public.notifications enable row level security;
 
-create or replace function public.is_admin()
-returns boolean
-language sql
-security definer
-set search_path = ''
-stable
-as $$
-  select exists (
-    select 1
-    from public.profiles
-    where id = (select auth.uid()) and role = 'admin'
-  );
-$$;
+-- Profiles policies
+drop policy if exists "allow_all_profiles_read" on public.profiles;
+create policy "allow_all_profiles_read" on public.profiles
+  for select to anon, authenticated using (true);
 
--- ---------- profile policies ----------
-drop policy if exists "profiles: view own or admin" on public.profiles;
-create policy "profiles: view own or admin"
-  on public.profiles for select to authenticated
-  using ((select auth.uid()) = id or public.is_admin());
+drop policy if exists "allow_all_profiles_insert" on public.profiles;
+create policy "allow_all_profiles_insert" on public.profiles
+  for insert to anon, authenticated with check (true);
 
-drop policy if exists "profiles: insert own" on public.profiles;
-create policy "profiles: insert own"
-  on public.profiles for insert to authenticated
-  with check ((select auth.uid()) = id and role = 'student');
+drop policy if exists "allow_all_profiles_update" on public.profiles;
+create policy "allow_all_profiles_update" on public.profiles
+  for update to anon, authenticated using (true) with check (true);
 
-drop policy if exists "profiles: update own" on public.profiles;
-create policy "profiles: update own"
-  on public.profiles for update to authenticated
-  using ((select auth.uid()) = id)
-  with check (
-    (select auth.uid()) = id
-    and (role = 'student' or public.is_admin())
-  );
+-- Departments policies
+drop policy if exists "allow_all_departments" on public.departments;
+create policy "allow_all_departments" on public.departments
+  for all to anon, authenticated using (true) with check (true);
 
--- ---------- department policies ----------
-drop policy if exists "departments: read by any signed-in user" on public.departments;
-create policy "departments: read by any signed-in user"
-  on public.departments for select to authenticated
-  using (true);
+-- Complaints policies
+drop policy if exists "allow_all_complaints" on public.complaints;
+create policy "allow_all_complaints" on public.complaints
+  for all to anon, authenticated using (true) with check (true);
 
-drop policy if exists "departments: admin manages" on public.departments;
-create policy "departments: admin manages"
-  on public.departments for all to authenticated
-  using (public.is_admin())
-  with check (public.is_admin());
-
--- ---------- complaint policies ----------
-drop policy if exists "complaints: student views own or admin views all" on public.complaints;
-create policy "complaints: student views own or admin views all"
-  on public.complaints for select to authenticated
-  using (student_id = (select auth.uid()) or public.is_admin());
-
-drop policy if exists "complaints: student inserts own" on public.complaints;
-create policy "complaints: student inserts own"
-  on public.complaints for insert to authenticated
-  with check (student_id = (select auth.uid()));
-
-drop policy if exists "complaints: admin updates any" on public.complaints;
-create policy "complaints: admin updates any"
-  on public.complaints for update to authenticated
-  using (public.is_admin())
-  with check (public.is_admin());
-
-drop policy if exists "complaints: admin deletes any" on public.complaints;
-create policy "complaints: admin deletes any"
-  on public.complaints for delete to authenticated
-  using (public.is_admin());
-
--- ---------- notification policies ----------
-drop policy if exists "notifications: user views own" on public.notifications;
-create policy "notifications: user views own"
-  on public.notifications for select to authenticated
-  using (user_id = (select auth.uid()));
-
-drop policy if exists "notifications: user updates own (mark read)" on public.notifications;
-create policy "notifications: user updates own (mark read)"
-  on public.notifications for update to authenticated
-  using (user_id = (select auth.uid()))
-  with check (user_id = (select auth.uid()));
-
-drop policy if exists "notifications: any signed-in user can insert" on public.notifications;
-create policy "notifications: any signed-in user can insert"
-  on public.notifications for insert to authenticated
-  with check (user_id = (select auth.uid()) or public.is_admin());
+-- Notifications policies
+drop policy if exists "allow_all_notifications" on public.notifications;
+create policy "allow_all_notifications" on public.notifications
+  for all to anon, authenticated using (true) with check (true);
 
 -- =========================================================
 -- Storage bucket for complaint images
@@ -240,10 +161,12 @@ create policy "complaint images: public read"
   on storage.objects for select to public
   using (bucket_id = 'complaint-images');
 
-drop policy if exists "complaint images: authenticated upload" on storage.objects;
-create policy "complaint images: authenticated upload"
-  on storage.objects for insert to authenticated
-  with check (
-    bucket_id = 'complaint-images'
-    and (storage.foldername(name))[1] = (select auth.uid())::text
-  );
+drop policy if exists "complaint images: public upload" on storage.objects;
+create policy "complaint images: public upload"
+  on storage.objects for insert to public
+  with check (bucket_id = 'complaint-images');
+
+drop policy if exists "complaint images: public update" on storage.objects;
+create policy "complaint images: public update"
+  on storage.objects for update to public
+  using (bucket_id = 'complaint-images');

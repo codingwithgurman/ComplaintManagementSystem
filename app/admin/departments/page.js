@@ -83,7 +83,7 @@ export default function DepartmentsPage() {
                 const open = complaints.filter((c) => c.department === d.name && c.status !== "Resolved").length;
                 return (
                   <tr key={d.id}>
-                    <td className="id-tag mono">D0{d.id}</td>
+                    <td className="id-tag mono">D{String(d.id).padStart(2, "0")}</td>
                     <td>{d.name}</td>
                     <td>{d.head}</td>
                     <td>{open}</td>

@@ -5,14 +5,13 @@ import { useAuth } from "@/lib/AuthProvider";
 import { useToast } from "@/lib/ToastProvider";
 import AppShell from "@/components/AppShell";
 import Field from "@/components/Field";
-import { supabase } from "@/lib/supabaseClient";
 import { updateProfile } from "@/lib/data";
 import { isRequired, isPhone, passwordStrength } from "@/lib/validate";
 
 const SEMESTERS = ["1st", "2nd", "3rd", "4th", "5th", "6th", "7th", "8th"];
 
 export default function ProfilePage() {
-  const { user, profile, refreshProfile } = useAuth();
+  const { user, profile, refreshProfile, changePassword } = useAuth();
   const toast = useToast();
 
   const [editOpen, setEditOpen] = useState(false);
@@ -44,7 +43,7 @@ export default function ProfilePage() {
       setEditOpen(false);
       toast("Profile updated successfully.", "success");
     } catch (err) {
-      toast(err.message || "Could not update profile.", "error");
+      toast(err?.message || "Could not update profile.", "error");
     }
   }
 
@@ -59,17 +58,16 @@ export default function ProfilePage() {
     if (Object.keys(errs).length) return;
 
     try {
-      const { error } = await supabase.auth.updateUser({
-        password: passForm.next,
-        current_password: passForm.current,
+      await changePassword({
+        currentPassword: passForm.current,
+        newPassword: passForm.next,
       });
-      if (error) throw error;
 
       setPassOpen(false);
       setPassForm({ current: "", next: "", confirm: "" });
       toast("Password updated successfully.", "success");
     } catch (error) {
-      toast(error.message || "Could not update your password.", "error");
+      toast(error?.message || "Could not update your password.", "error");
     }
   }
 

@@ -13,14 +13,17 @@ export default function AdminDashboardPage() {
 
   useEffect(() => {
     fetchAllComplaints().then(setComplaints).catch(() => setComplaints([]));
-    fetchDepartments().then(setDepartments).catch(() => {});
-    fetchAllProfiles().then((rows) => setStudentCount(rows.filter((r) => r.role === "student").length)).catch(() => {});
+    fetchDepartments().then((d) => setDepartments(d || [])).catch(() => setDepartments([]));
+    fetchAllProfiles()
+      .then((rows) => setStudentCount((rows || []).filter((r) => r.role === "student").length))
+      .catch(() => setStudentCount(0));
   }, []);
 
   const loading = complaints === null;
-  const total = complaints?.length || 0;
-  const pending = complaints?.filter((c) => c.status === "Pending").length || 0;
-  const resolved = complaints?.filter((c) => c.status === "Resolved").length || 0;
+  const list = complaints || [];
+  const total = list.length;
+  const pending = list.filter((c) => c.status === "Pending").length;
+  const resolved = list.filter((c) => c.status === "Resolved").length;
 
   return (
     <AppShell title="Admin Dashboard" requiredRole="admin" showNotif={false}>
@@ -36,9 +39,9 @@ export default function AdminDashboardPage() {
         {loading ? (
           <p style={{ color: "var(--ink-faint)", fontSize: ".9rem" }}>Loading…</p>
         ) : (
-          departments.map((d) => {
-            const count = complaints.filter((c) => c.department === d.name).length;
-            const open = complaints.filter((c) => c.department === d.name && c.status !== "Resolved").length;
+          (departments || []).map((d) => {
+            const count = list.filter((c) => c.department === d.name).length;
+            const open = list.filter((c) => c.department === d.name && c.status !== "Resolved").length;
             const pct = total ? Math.round((count / total) * 100) : 0;
             return (
               <div key={d.id} style={{ marginBottom: 16 }}>

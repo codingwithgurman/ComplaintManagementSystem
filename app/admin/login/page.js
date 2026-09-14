@@ -3,7 +3,6 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabaseClient";
 import { useAuth } from "@/lib/AuthProvider";
 import { useToast } from "@/lib/ToastProvider";
 import { isRequired, isEmail } from "@/lib/validate";
@@ -12,7 +11,7 @@ import Field from "@/components/Field";
 export default function AdminLoginPage() {
   const router = useRouter();
   const toast = useToast();
-  const { user, profile, loading } = useAuth();
+  const { user, profile, loading, login } = useAuth();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -38,31 +37,11 @@ export default function AdminLoginPage() {
 
     setSubmitting(true);
     try {
-      const { data, error: signInError } = await supabase.auth.signInWithPassword({
+      await login({
         email: email.trim(),
         password,
+        requiredRole: "admin",
       });
-      if (signInError) {
-        const message = "Incorrect email or password.";
-        setFormError(message);
-        toast(message, "error");
-        return;
-      }
-
-      const { data: prof, error: profileError } = await supabase
-        .from("profiles")
-        .select("role")
-        .eq("id", data.user.id)
-        .maybeSingle();
-      if (profileError) throw profileError;
-
-      if (prof?.role !== "admin") {
-        await supabase.auth.signOut();
-        const message = "This account isn't registered as an administrator.";
-        setFormError(message);
-        toast(message, "error");
-        return;
-      }
 
       toast("Welcome back, Admin!", "success");
       router.push("/admin/dashboard");
@@ -106,7 +85,7 @@ export default function AdminLoginPage() {
 
         <p className="form-foot">Student? <Link href="/login">Go to student login</Link></p>
         <p className="form-foot" style={{ fontSize: ".78rem" }}>
-          Register the account first, then promote its profile — see <code>SUPABASE_SETUP.md</code>.
+          Register an account first, then promote its profile in the database — see <code>README.md</code>.
         </p>
       </div>
     </div>

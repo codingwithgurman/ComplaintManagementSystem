@@ -27,7 +27,7 @@ export default function NewComplaintPage() {
   const [success, setSuccess] = useState(null);
 
   useEffect(() => {
-    fetchDepartments().then((d) => setDepartments(d)).catch(() => {});
+    fetchDepartments().then((d) => setDepartments(d || [])).catch(() => setDepartments([]));
   }, []);
 
   function handleImageChange(e) {

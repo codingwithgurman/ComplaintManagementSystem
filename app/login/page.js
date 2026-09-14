@@ -3,7 +3,6 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabaseClient";
 import { useAuth } from "@/lib/AuthProvider";
 import { useToast } from "@/lib/ToastProvider";
 import { isRequired, isEmail } from "@/lib/validate";
@@ -12,7 +11,7 @@ import Field from "@/components/Field";
 export default function LoginPage() {
   const router = useRouter();
   const toast = useToast();
-  const { user, profile, loading } = useAuth();
+  const { user, profile, loading, login } = useAuth();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -38,16 +37,11 @@ export default function LoginPage() {
 
     setSubmitting(true);
     try {
-      const { error } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
-        password,
-      });
-      if (error) throw error;
-
+      await login({ email: email.trim(), password });
       toast("Welcome back!", "success");
       router.push("/dashboard");
     } catch (error) {
-      const message = "Incorrect email or password.";
+      const message = error?.message || "Incorrect email or password.";
       setFormError(message);
       toast(message, "error");
     } finally {

@@ -3,7 +3,6 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabaseClient";
 import { useAuth } from "@/lib/AuthProvider";
 import { useToast } from "@/lib/ToastProvider";
 import { isRequired, isEmail, isPhone, passwordStrength, strengthLabel, strengthColor } from "@/lib/validate";
@@ -15,7 +14,7 @@ const SEMESTERS = ["1st", "2nd", "3rd", "4th", "5th", "6th", "7th", "8th"];
 export default function RegisterPage() {
   const router = useRouter();
   const toast = useToast();
-  const { refreshProfile } = useAuth();
+  const { register } = useAuth();
 
   const [form, setForm] = useState({
     name: "", roll: "", department: "", course: "", semester: "",
@@ -56,38 +55,21 @@ export default function RegisterPage() {
     setSubmitting(true);
 
     try {
-      const { data, error } = await supabase.auth.signUp({
+      await register({
+        name: form.name.trim(),
+        roll: form.roll.trim().toUpperCase(),
+        department: form.department,
+        course: form.course.trim(),
+        semester: form.semester,
         email: form.email.trim(),
+        phone: form.phone.trim(),
         password: form.password,
-        options: {
-          emailRedirectTo: `${window.location.origin}/login`,
-          data: {
-            name: form.name.trim(),
-            roll: form.roll.trim().toUpperCase(),
-            phone: form.phone.trim(),
-            department: form.department,
-            course: form.course.trim(),
-            semester: form.semester,
-          },
-        },
       });
-      if (error) throw error;
 
-      if (data.session && data.user) {
-        await refreshProfile(data.user.id);
-        toast("Account created! Redirecting...", "success");
-        router.push("/dashboard");
-      } else {
-        toast("Account created! Check your email to confirm, then log in.", "success");
-        router.push("/login");
-      }
+      toast("Account created! Redirecting to dashboard…", "success");
+      router.push("/dashboard");
     } catch (error) {
-      const lowerMessage = error?.message?.toLowerCase() || "";
-      const message = lowerMessage.includes("already registered") || lowerMessage.includes("already been registered")
-        ? "An account with this email already exists."
-        : lowerMessage.includes("duplicate") || lowerMessage.includes("database error")
-          ? "This email or roll number is already registered."
-          : error?.message || "Registration failed. Please try again.";
+      const message = error?.message || "Registration failed. Please try again.";
       setFormError(message);
       toast(message, "error");
     } finally {
